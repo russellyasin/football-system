@@ -3,6 +3,8 @@ from flask_cors import CORS
 import math
 import os
 import pandas as pd
+import uuid
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -10,13 +12,15 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 PICKS_FILE = "picks.csv"
 HISTORY_FILE = "history.csv"
 
-# ✅ SAFE FILE INIT (NO CRASH)
+# ✅ SAFE FILE INIT
 if not os.path.exists(PICKS_FILE):
     pd.DataFrame().to_csv(PICKS_FILE, index=False)
 
 if not os.path.exists(HISTORY_FILE):
     pd.DataFrame(columns=[
-        "home", "away", "exp_home", "exp_away",
+        "match_id", "date", "league",
+        "home", "away",
+        "exp_home", "exp_away",
         "actual_home_goals", "actual_away_goals"
     ]).to_csv(HISTORY_FILE, index=False)
 
@@ -27,24 +31,18 @@ except:
 
 
 # ===============================
-# ✅ ✅ NEW FIX: TEAM NORMALIZATION
+# ✅ NORMALIZE TEAM
 # ===============================
 def normalize_team(name):
     return str(name).lower().strip().replace(" fc", "")
 
 
 # ===============================
-# ✅ ✅ FIXED UPDATE FUNCTION
+# ✅ UPDATE OR STORE (WITH MATCH ID)
 # ===============================
 def update_or_store_prediction(data):
     try:
         df = pd.read_csv(HISTORY_FILE)
-
-        # ensure columns exist
-        if "actual_home_goals" not in df.columns:
-            df["actual_home_goals"] = None
-        if "actual_away_goals" not in df.columns:
-            df["actual_away_goals"] = None
 
         home_n = normalize_team(data["home"])
         away_n = normalize_team(data["away"])
@@ -54,14 +52,15 @@ def update_or_store_prediction(data):
 
         mask = (df["home_norm"] == home_n) & (df["away_norm"] == away_n)
 
-        # ✅ ONLY APPEND IF NOT EXIST
+        # ✅ ONLY ADD IF NOT EXIST
         if not mask.any():
+            data["match_id"] = str(uuid.uuid4())  # ✅ UNIQUE ID
+            data["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
         else:
-            print("✅ Existing match found — not duplicating")
+            print("✅ Match already exists")
 
         df = df.drop(columns=["home_norm", "away_norm"], errors="ignore")
-
         df.to_csv(HISTORY_FILE, index=False)
 
     except Exception as e:
@@ -73,14 +72,8 @@ def update_or_store_prediction(data):
 # ===============================
 def get_team_strength(team_name):
     try:
-        if not team_name:
-            return 1.2
-
         team = normalize_team(team_name)
         df = pd.read_csv(HISTORY_FILE)
-
-        if df.empty:
-            return 1.2
 
         df["home_norm"] = df["home"].astype(str).apply(normalize_team)
         df["away_norm"] = df["away"].astype(str).apply(normalize_team)
@@ -92,21 +85,16 @@ def get_team_strength(team_name):
 
         if len(matches) >= 3:
             avg = matches["exp_home"].mean()
-
-            if pd.isna(avg):
-                return 1.2
-
             return max(0.8, min(2.2, float(avg)))
 
         return 1.2
 
-    except Exception as e:
-        print("TEAM ERROR:", e)
+    except:
         return 1.2
 
 
 # ===============================
-# ✅ MODEL SAFE
+# ✅ MODEL
 # ===============================
 def poisson_prob(lmbda, k):
     try:
@@ -116,12 +104,6 @@ def poisson_prob(lmbda, k):
 
 
 def model(h, a):
-    try:
-        h = float(h)
-        a = float(a)
-    except:
-        return 1, 1, 0, 0, 0, 0
-
     hw = dr = aw = btts = 0
 
     for x in range(6):
@@ -142,30 +124,6 @@ def model(h, a):
 
 
 # ===============================
-# ✅ HELPERS
-# ===============================
-def detect_value(prob, odds):
-    try:
-        return round(prob - (100 / odds), 2)
-    except:
-        return 0
-
-
-def rescale_confidence(base, edge):
-    try:
-        return min(10, round(base + max(0, edge / 5), 1))
-    except:
-        return base
-
-
-def evaluate_bet(edge, conf, total):
-    try:
-        return round(edge * 0.5 + conf * 0.3 + total * 2, 2)
-    except:
-        return 0
-
-
-# ===============================
 # ✅ ROOT
 # ===============================
 @app.route("/")
@@ -174,59 +132,47 @@ def home():
 
 
 # ===============================
-# ✅ PREDICT
+# ✅ PREDICT (UPDATED WITH LEAGUE + ID)
 # ===============================
 @app.route("/api/predict", methods=["POST"])
 def predict():
     try:
         data = request.get_json(force=True)
 
-        if not data:
-            return jsonify({"error": "no data"}), 400
-
         home = data.get("home")
         away = data.get("away")
-
-        if not home or not away:
-            return jsonify({"error": "missing teams"}), 400
+        league = data.get("league", "Unknown")  # ✅ NEW
 
         h = get_team_strength(home)
         a = get_team_strength(away)
 
         eh, ea, hw, dr, aw, btts = model(h, a)
 
-        total = float(eh + ea)
+        total = eh + ea
         over = max(0, min(100, (total - 2.5) * 40 + 50))
-
-        edge = detect_value(over, 2.2)
-        conf = rescale_confidence(6, edge)
-        score = evaluate_bet(edge, conf, total)
 
         result = {
             "home": home,
             "away": away,
+            "league": league,
             "exp_home": round(eh, 2),
             "exp_away": round(ea, 2),
             "total": round(total, 2),
             "over_2_5": round(over, 2),
-            "value_edge": edge,
-            "confidence": conf,
-            "market": "Over 2.5 Goals",
-            "bet_score": score
+            "confidence": 6,
+            "market": "Over 2.5 Goals"
         }
 
-        # ✅ ✅ FIXED STORAGE
         update_or_store_prediction(result)
 
         return jsonify(result)
 
     except Exception as e:
-        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
 # ===============================
-# ✅ RESULT UPDATE (NEW FIX)
+# ✅ RESULT UPDATE (USES MATCH ID MATCHING LOGIC)
 # ===============================
 @app.route("/api/result", methods=["POST"])
 def update_result():
@@ -235,6 +181,7 @@ def update_result():
 
         home = data.get("home")
         away = data.get("away")
+
         hg = data.get("home_goals")
         ag = data.get("away_goals")
 
