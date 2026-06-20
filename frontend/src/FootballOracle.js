@@ -12,33 +12,51 @@ export default function FootballOracle() {
 
   const API = "https://football-system-v50t.onrender.com";
 
-  // ✅ SAFE FETCH
-  const waitFetch = async (url, options = {}) => {
-    const res = await fetch(url, options);
-
-    // ✅ CRITICAL FIX: detect backend error response
-    const data = await res.json();
-
-    if (!res.ok || data.error) {
-      throw new Error(data.error || "Backend error");
+  // ✅ WAKE SERVER FIRST (CRITICAL)
+  const wakeServer = async () => {
+    try {
+      await fetch(API);
+    } catch {
+      // ignore
     }
+  };
 
-    return data;
+  // ✅ RETRY FETCH (FINAL FIX)
+  const fetchWithRetry = async (url, options, retries = 3) => {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) throw new Error("Server error");
+
+      return await res.json();
+
+    } catch (err) {
+
+      if (retries === 0) {
+        throw err;
+      }
+
+      console.log("Retrying...", retries);
+
+      // wait 5s then retry
+      await new Promise(r => setTimeout(r, 5000));
+
+      return fetchWithRetry(url, options, retries - 1);
+    }
   };
 
   // ✅ LOAD PICKS
   const loadPicks = async () => {
     try {
-      const res = await fetch(`${API}/api/picks`);
-      const data = await res.json();
+      const data = await fetchWithRetry(`${API}/api/picks`);
       setTop3(data.top3 || []);
       setPicks(data.picks || []);
     } catch {
-      console.log("picks failed");
+      console.log("Picks failed (server sleeping)");
     }
   };
 
   useEffect(() => {
+    wakeServer(); // ✅ wake backend on load
     loadPicks();
 
     const interval = setInterval(loadPicks, 10000);
@@ -47,29 +65,31 @@ export default function FootballOracle() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ PREDICTION
+  // ✅ PREDICT
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
     setLoading(true);
-    setResult("⏳ Connecting...");
+    setResult("⏳ Connecting to server (first request may take 30–60s)...");
 
     try {
-      const data = await waitFetch(`${API}/api/predict`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          home: homeTeam,
-          away: awayTeam
-        })
-      });
+      // ✅ ensure server is awake
+      await wakeServer();
 
-      // ✅ SAFE DISPLAY
-      if (!data.exp_home) {
-        throw new Error("Invalid response");
-      }
+      const data = await fetchWithRetry(
+        `${API}/api/predict`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            home: homeTeam,
+            away: awayTeam
+          })
+        },
+        4 // more retries
+      );
 
       setResult(`
 ${homeTeam} vs ${awayTeam}
@@ -86,17 +106,19 @@ Best Pick: ${data.market}
       `);
 
     } catch (err) {
-      console.log("ERROR:", err);
+
+      console.log("FINAL ERROR:", err);
 
       setResult(`
-❌ API issue detected
+❌ Connection failed
 
-Possible causes:
-• Server still waking (Render delay)
-• Backend returned error
-• Temporary network issue
+Reason: Server is sleeping or temporarily unreachable
 
-👉 Try again in a few seconds
+✅ Fix:
+1. Wait ~30 seconds
+2. Click Analyse again
+
+(This is normal on Render free plan)
       `);
     }
 
@@ -145,7 +167,7 @@ Possible causes:
 
       <h2 style={{ color: "#facc15" }}>🔥 Top 3 Picks</h2>
 
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "10px" }}>
         {top3.map((p, i) => (
           <div key={i} style={topCard}>
             {p.home} vs {p.away}
@@ -165,7 +187,7 @@ Possible causes:
   );
 }
 
-// STYLES
+// styles
 
 const inputStyle = {
   display: "block",
