@@ -10,14 +10,13 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 PICKS_FILE = "picks.csv"
 HISTORY_FILE = "history.csv"
 
-# ✅ ALWAYS INITIALIZE SAFELY
+# ✅ SAFE FILE INIT (NO CRASH)
 if not os.path.exists(PICKS_FILE):
     pd.DataFrame().to_csv(PICKS_FILE, index=False)
 
 if not os.path.exists(HISTORY_FILE):
     pd.DataFrame(columns=["home", "away", "exp_home", "exp_away"]).to_csv(HISTORY_FILE, index=False)
 
-# ✅ LOAD PICKS
 try:
     all_predictions = pd.read_csv(PICKS_FILE).to_dict("records")
 except:
@@ -25,7 +24,7 @@ except:
 
 
 # ===============================
-# ✅ TEAM STRENGTH (SAFE)
+# ✅ TEAM STRENGTH
 # ===============================
 def get_team_strength(team_name):
     try:
@@ -33,36 +32,39 @@ def get_team_strength(team_name):
             return 1.2
 
         team = str(team_name).lower()
-
         df = pd.read_csv(HISTORY_FILE)
 
-        if df.empty or "home" not in df.columns:
+        if df.empty:
             return 1.2
 
-        team_matches = df[
+        matches = df[
             (df["home"].astype(str).str.lower() == team) |
             (df["away"].astype(str).str.lower() == team)
         ]
 
-        if len(team_matches) >= 3 and "exp_home" in df.columns:
-            avg = team_matches["exp_home"].mean()
+        if len(matches) >= 3:
+            avg = matches["exp_home"].mean()
+
             if pd.isna(avg):
                 return 1.2
+
             return max(0.8, min(2.2, float(avg)))
 
         return 1.2
 
-    except:
+    except Exception as e:
+        print("TEAM ERROR:", e)
         return 1.2
 
 
 # ===============================
-# ✅ MODEL (SAFE)
+# ✅ MODEL SAFE
 # ===============================
 def poisson_prob(lmbda, k):
     try:
         return (math.exp(-lmbda) * (lmbda ** k)) / math.factorial(k)
-    except:
+    except Exception as e:
+        print("POISSON ERROR:", e)
         return 0
 
 
@@ -118,10 +120,9 @@ def evaluate_bet(edge, conf, total):
 
 def store_prediction(data):
     try:
-        df = pd.DataFrame([data])
-        df.to_csv(HISTORY_FILE, mode='a', header=False, index=False)
-    except:
-        pass
+        pd.DataFrame([data]).to_csv(HISTORY_FILE, mode='a', header=False, index=False)
+    except Exception as e:
+        print("STORE ERROR:", e)
 
 
 # ===============================
@@ -129,16 +130,18 @@ def store_prediction(data):
 # ===============================
 @app.route("/")
 def home():
-    return "API LIVE ✅"
+    return "Football API is LIVE ✅"
 
 
 # ===============================
-# ✅ PREDICT
+# ✅ FINAL DEBUG PREDICT (KEY FIX)
 # ===============================
 @app.route("/api/predict", methods=["POST"])
 def predict():
     try:
-        data = request.get_json()
+        data = request.get_json(force=True)
+
+        print("✅ DATA RECEIVED:", data)
 
         if not data:
             return jsonify({"error": "no data"}), 400
@@ -147,14 +150,18 @@ def predict():
         away = data.get("away")
 
         if not home or not away:
-            return jsonify({"error": "teams missing"}), 400
+            return jsonify({"error": "missing teams"}), 400
 
         h = get_team_strength(home)
         a = get_team_strength(away)
 
+        print("✅ TEAM STRENGTH:", h, a)
+
         eh, ea, hw, dr, aw, btts = model(h, a)
 
-        total = eh + ea
+        print("✅ MODEL:", eh, ea)
+
+        total = float(eh + ea)
         over = max(0, min(100, (total - 2.5) * 40 + 50))
 
         edge = detect_value(over, 2.2)
@@ -168,17 +175,22 @@ def predict():
             "exp_away": round(ea, 2),
             "total": round(total, 2),
             "over_2_5": round(over, 2),
+            "value_edge": edge,
             "confidence": conf,
-            "market": "Over 2.5",
+            "market": "Over 2.5 Goals",
             "bet_score": score
         }
 
+        print("✅ RESULT:", result)
+
         store_prediction(result)
+        all_predictions.append(result)
+
         return jsonify(result)
 
     except Exception as e:
-        print("ERROR:", e)
-        return jsonify({"error": "server crash"}), 500
+        print("🔥 CRITICAL ERROR:", str(e))
+        return jsonify({"error": str(e)}), 500
 
 
 # ===============================
@@ -189,7 +201,8 @@ def picks():
     try:
         df = pd.read_csv(HISTORY_FILE)
         return jsonify({"top3": [], "picks": df.to_dict("records")[-10:]})
-    except:
+    except Exception as e:
+        print("PICKS ERROR:", e)
         return jsonify({"top3": [], "picks": []})
 
 
