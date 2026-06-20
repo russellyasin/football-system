@@ -5,9 +5,10 @@ import os
 import pandas as pd
 
 app = Flask(__name__)
-CORS(app)
 
-# ✅ NEW (SAFE ADD)
+# ✅ FIXED CORS (IMPORTANT)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
 all_predictions = []
 PICKS_FILE = "picks.csv"
 
@@ -17,6 +18,7 @@ if os.path.exists(PICKS_FILE):
         all_predictions = pd.read_csv(PICKS_FILE).to_dict("records")
     except:
         all_predictions = []
+
 
 # ===============================
 # ✅ TEAM STRENGTH
@@ -69,30 +71,7 @@ def get_team_strength(team_name):
         except:
             pass
 
-    if "man city" in team or "liverpool" in team:
-        return 1.8
-    elif "arsenal" in team or "chelsea" in team:
-        return 1.5
-    elif "united" in team or "city" in team:
-        return 1.4
-    elif "fc" in team:
-        return 1.3
-    else:
-        return base_attack
-
-
-# ===============================
-# ✅ INTERACTION + CONTEXT
-# ===============================
-def adjust_for_opponent(home_team, away_team, h, a):
-    diff = h - a
-    adj = diff * 0.1
-    return max(0.8, min(2.5, h + adj)), max(0.8, min(2.5, a - adj))
-
-
-def apply_context(home_team, away_team, h, a):
-    h += 0.15
-    return max(0.8, min(2.5, h)), max(0.8, min(2.5, a))
+    return base_attack
 
 
 # ===============================
@@ -119,16 +98,7 @@ def model(h, a):
 
 
 # ===============================
-# ✅ MARKETS
-# ===============================
-def calculate_markets(h, a):
-    total = h + a
-    over = min(100, max(0, (total - 2.5) * 40 + 50))
-    return round(over, 1), round(100 - over, 1)
-
-
-# ===============================
-# ✅ VALUE + CONF
+# ✅ VALUE
 # ===============================
 def detect_value(prob, odds):
     return round(prob - (100 / odds), 2)
@@ -155,43 +125,42 @@ def store_prediction(data):
 
 
 # ===============================
-# ✅ API
+# ✅ ROOT ROUTE
 # ===============================
-@app.route("/api/predict", methods=["POST"])
+@app.route("/", methods=["GET"])
+def home():
+    return "Football API is live ✅"
+
+
+# ===============================
+# ✅ PREDICT ROUTE
+# ===============================
+@app.route("/api/predict", methods=["GET", "POST"])
 def predict():
+    if request.method == "GET":
+        return jsonify({
+            "message": "API working ✅ Use POST",
+            "example": {
+                "home": "arsenal",
+                "away": "chelsea"
+            }
+        })
+
     try:
         data = request.get_json()
 
         home = data.get("home")
         away = data.get("away")
 
-        # ✅ NEW odds input
-        odds_over = data.get("odds_over", 2.2)
-        odds_under = data.get("odds_under", 2.2)
-
         h = get_team_strength(home)
         a = get_team_strength(away)
 
-        h, a = adjust_for_opponent(home, away, h, a)
-        h, a = apply_context(home, away, h, a)
-
         eh, ea, hw, dr, aw, btts = model(h, a)
 
-        over, under = calculate_markets(eh, ea)
+        total = eh + ea
+        over = min(100, max(0, (total - 2.5) * 40 + 50))
 
-        # ✅ VALUE COMPARISON (NEW CORE FIX)
-        value_over = detect_value(over, odds_over)
-        value_under = detect_value(100 - over, odds_under)
-
-        if value_over > value_under:
-            best_market = "Over 2.5 Goals"
-            value_edge = value_over
-            used_odds = odds_over
-        else:
-            best_market = "Under 2.5 Goals"
-            value_edge = value_under
-            used_odds = odds_under
-
+        value_edge = detect_value(over, 2.2)
         confidence = rescale_confidence(6, value_edge)
 
         result = {
@@ -199,24 +168,16 @@ def predict():
             "away": away,
             "exp_home": round(eh, 2),
             "exp_away": round(ea, 2),
-            "total": round(eh + ea, 2),
+            "total": round(total, 2),
             "over_2_5": over,
             "value_edge": value_edge,
             "confidence": confidence,
-            "market": best_market,
-            "odds_used": used_odds,
-            "bet_score": evaluate_bet(value_edge, confidence, eh + ea)
+            "market": "Over 2.5 Goals",
+            "bet_score": evaluate_bet(value_edge, confidence, total)
         }
 
         store_prediction(result)
-
         all_predictions.append(result)
-
-        df_pick = pd.DataFrame([result])
-        if os.path.exists(PICKS_FILE):
-            df_pick.to_csv(PICKS_FILE, mode='a', header=False, index=False)
-        else:
-            df_pick.to_csv(PICKS_FILE, index=False)
 
         return jsonify(result)
 
@@ -234,4 +195,4 @@ def get_picks():
 # ✅ RUN
 # ===============================
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True)

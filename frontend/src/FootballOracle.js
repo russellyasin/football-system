@@ -6,16 +6,16 @@ export default function FootballOracle() {
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [interpreterResult, setInterpreterResult] = useState("");
-  const [interpreterLoading, setInterpreterLoading] = useState(false);
-
   const [picks, setPicks] = useState([]);
   const [top3, setTop3] = useState([]);
 
+  // ✅ LIVE API BASE
+  const API = "https://football-system-v50t.onrender.com";
+
+  // ✅ LOAD PICKS
   const loadPicks = async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/picks");
+      const res = await fetch(`${API}/api/picks`);
       const data = await res.json();
 
       setTop3(data.top3 || []);
@@ -31,13 +31,14 @@ export default function FootballOracle() {
     return () => clearInterval(interval);
   }, []);
 
+  // ✅ PREDICTION
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:5000/api/predict", {
+      const res = await fetch(`${API}/api/predict`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -53,17 +54,19 @@ export default function FootballOracle() {
       setResult(`
 ${homeTeam} vs ${awayTeam}
 
-Expected: ${data.exp_home} - ${data.exp_away}
+Expected Goals:
+Home: ${data.exp_home}
+Away: ${data.exp_away}
 Total: ${data.total}
 
 Over 2.5: ${data.over_2_5}%
 Confidence: ${data.confidence}/10
 
-Best Pick: ${data.market || data.best_pick}
+Best Pick: ${data.market}
       `);
 
     } catch {
-      setResult("❌ Backend connection failed");
+      setResult("❌ Live API connection failed");
     }
 
     setLoading(false);
@@ -71,24 +74,21 @@ Best Pick: ${data.market || data.best_pick}
 
   return (
     <div style={{ 
-      background: "#0f172a", 
-      minHeight: "100vh", 
-      color: "#fff", 
+      background: "#0f172a",
+      minHeight: "100vh",
+      color: "#fff",
       padding: "20px",
       fontFamily: "Arial"
     }}>
 
       <h1 style={{ color: "#38bdf8" }}>⚽ Football Oracle</h1>
 
-      {/* INPUT CARD */}
+      {/* INPUT */}
       <div style={{
         background: "#1e293b",
         padding: "20px",
-        borderRadius: "12px",
-        marginBottom: "20px"
+        borderRadius: "12px"
       }}>
-        <h2>Match Analysis</h2>
-
         <input
           placeholder="Home Team"
           value={homeTeam}
@@ -108,36 +108,34 @@ Best Pick: ${data.market || data.best_pick}
         </button>
       </div>
 
-      {/* RESULT CARD */}
+      {/* RESULT */}
       {result && (
         <div style={cardStyle}>
-          <h3>📊 Prediction Result</h3>
           <pre style={{ whiteSpace: "pre-wrap" }}>{result}</pre>
         </div>
       )}
 
       {/* TOP PICKS */}
-      <h2 style={{ marginTop: "30px", color: "#facc15" }}>🔥 Top 3 Elite Picks</h2>
+      <h2 style={{ color: "#facc15", marginTop: "30px" }}>🔥 Top 3 Picks</h2>
 
       <div style={{ display: "flex", gap: "15px", flexWrap: "wrap" }}>
         {top3.map((p, i) => (
           <div key={i} style={topCard}>
             <h3>{p.home} vs {p.away}</h3>
-            <p>🎯 {p.market}</p>
-            <p>Edge: {p.value_edge}</p>
+            <p>{p.market}</p>
             <p>Conf: {p.confidence}</p>
           </div>
         ))}
       </div>
 
-      {/* PICKS LIST */}
+      {/* PICKS */}
       <h2 style={{ marginTop: "30px", color: "#22c55e" }}>✅ Best Picks</h2>
 
       {picks.map((p, i) => (
         <div key={i} style={listCard}>
           <div>
-            <strong>{p.home} vs {p.away}</strong>
-            <div style={{ fontSize: "12px", opacity: 0.7 }}>
+            {p.home} vs {p.away}
+            <div style={{ fontSize: "12px" }}>
               {p.market}
             </div>
           </div>
@@ -149,12 +147,11 @@ Best Pick: ${data.market || data.best_pick}
           </div>
         </div>
       ))}
-
     </div>
   );
 }
 
-/* ================= STYLES ================= */
+/* STYLES */
 
 const inputStyle = {
   display: "block",
@@ -174,15 +171,14 @@ const buttonStyle = {
   borderRadius: "6px",
   color: "#000",
   fontWeight: "bold",
-  cursor: "pointer",
-  marginTop: "10px"
+  cursor: "pointer"
 };
 
 const cardStyle = {
   background: "#1e293b",
   padding: "15px",
-  borderRadius: "10px",
-  marginTop: "20px"
+  marginTop: "20px",
+  borderRadius: "10px"
 };
 
 const topCard = {
@@ -191,8 +187,7 @@ const topCard = {
   background: "linear-gradient(135deg, #facc15, #f59e0b)",
   padding: "15px",
   borderRadius: "10px",
-  color: "#000",
-  fontWeight: "bold"
+  color: "#000"
 };
 
 const listCard = {
@@ -201,6 +196,5 @@ const listCard = {
   background: "#1e293b",
   padding: "12px",
   borderRadius: "8px",
-  margin: "10px 0",
-  borderLeft: "4px solid #22c55e"
+  margin: "10px 0"
 };
