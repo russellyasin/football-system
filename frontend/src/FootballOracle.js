@@ -13,7 +13,7 @@ export default function FootballOracle() {
   const [top3, setTop3] = useState([]);
 
   // ✅ ✅ ✅ FIXED API (ONLY CHANGE)
-  const API = "https://football-system-v50t.onrender.com";
+  const API = "https://football-system-v5ot.onrender.com";
 
   const wakeServer = async () => {
     setWaking(true);
