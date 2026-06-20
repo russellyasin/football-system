@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 
 export default function FootballOracle() {
+
   const [homeTeam, setHomeTeam] = useState("");
   const [awayTeam, setAwayTeam] = useState("");
   const [result, setResult] = useState("");
@@ -9,36 +10,57 @@ export default function FootballOracle() {
   const [picks, setPicks] = useState([]);
   const [top3, setTop3] = useState([]);
 
-  // ✅ LIVE API BASE
   const API = "https://football-system-v50t.onrender.com";
+
+  // ✅ LONG WAIT FETCH (KEY FIX)
+  const waitFetch = async (url, options = {}) => {
+    return new Promise(async (resolve, reject) => {
+
+      let timeout = setTimeout(() => {
+        reject("timeout");
+      }, 60000); // ✅ wait up to 60 seconds
+
+      try {
+        const res = await fetch(url, options);
+        clearTimeout(timeout);
+        resolve(await res.json());
+      } catch (err) {
+        clearTimeout(timeout);
+        reject(err);
+      }
+    });
+  };
 
   // ✅ LOAD PICKS
   const loadPicks = async () => {
     try {
       const res = await fetch(`${API}/api/picks`);
       const data = await res.json();
-
       setTop3(data.top3 || []);
       setPicks(data.picks || []);
     } catch {
-      console.log("Failed to load picks");
+      console.log("picks failed (server sleeping)");
     }
   };
 
   useEffect(() => {
     loadPicks();
-    const interval = setInterval(loadPicks, 5000);
+
+    const interval = setInterval(loadPicks, 10000);
     return () => clearInterval(interval);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ PREDICTION
+  // ✅ MAIN FIX HERE
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
     setLoading(true);
+    setResult("⏳ Connecting to live server (can take up to 30s)...");
 
     try {
-      const res = await fetch(`${API}/api/predict`, {
+      const data = await waitFetch(`${API}/api/predict`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -48,8 +70,6 @@ export default function FootballOracle() {
           away: awayTeam
         })
       });
-
-      const data = await res.json();
 
       setResult(`
 ${homeTeam} vs ${awayTeam}
@@ -65,29 +85,32 @@ Confidence: ${data.confidence}/10
 Best Pick: ${data.market}
       `);
 
-    } catch {
-      setResult("❌ Live API connection failed");
+    } catch (err) {
+
+      if (err === "timeout") {
+        setResult("⚠️ Server took too long. Click again once.");
+      } else {
+        setResult("❌ API error — check backend");
+      }
     }
 
     setLoading(false);
   };
 
   return (
-    <div style={{ 
+    <div style={{
       background: "#0f172a",
       minHeight: "100vh",
       color: "#fff",
-      padding: "20px",
-      fontFamily: "Arial"
+      padding: "20px"
     }}>
 
       <h1 style={{ color: "#38bdf8" }}>⚽ Football Oracle</h1>
 
-      {/* INPUT */}
       <div style={{
         background: "#1e293b",
         padding: "20px",
-        borderRadius: "12px"
+        borderRadius: "10px"
       }}>
         <input
           placeholder="Home Team"
@@ -108,50 +131,39 @@ Best Pick: ${data.market}
         </button>
       </div>
 
-      {/* RESULT */}
       {result && (
         <div style={cardStyle}>
           <pre style={{ whiteSpace: "pre-wrap" }}>{result}</pre>
         </div>
       )}
 
-      {/* TOP PICKS */}
-      <h2 style={{ color: "#facc15", marginTop: "30px" }}>🔥 Top 3 Picks</h2>
+      <h2 style={{ color: "#facc15" }}>
+        🔥 Top 3 Picks
+      </h2>
 
-      <div style={{ display: "flex", gap: "15px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
         {top3.map((p, i) => (
           <div key={i} style={topCard}>
-            <h3>{p.home} vs {p.away}</h3>
-            <p>{p.market}</p>
-            <p>Conf: {p.confidence}</p>
+            {p.home} vs {p.away}
           </div>
         ))}
       </div>
 
-      {/* PICKS */}
-      <h2 style={{ marginTop: "30px", color: "#22c55e" }}>✅ Best Picks</h2>
+      <h2 style={{ color: "#22c55e" }}>
+        ✅ Best Picks
+      </h2>
 
       {picks.map((p, i) => (
         <div key={i} style={listCard}>
-          <div>
-            {p.home} vs {p.away}
-            <div style={{ fontSize: "12px" }}>
-              {p.market}
-            </div>
-          </div>
-
-          <div>
-            🎯 {p.bet_score}
-            <br />
-            <small>Conf: {p.confidence}</small>
-          </div>
+          {p.home} vs {p.away} → {p.market}
         </div>
       ))}
+
     </div>
   );
 }
 
-/* STYLES */
+// styles
 
 const inputStyle = {
   display: "block",
@@ -159,42 +171,36 @@ const inputStyle = {
   padding: "10px",
   margin: "10px 0",
   borderRadius: "6px",
-  border: "none",
   background: "#0f172a",
-  color: "#fff"
+  color: "#fff",
+  border: "none"
 };
 
 const buttonStyle = {
-  padding: "10px 20px",
+  padding: "10px",
   background: "#38bdf8",
   border: "none",
   borderRadius: "6px",
-  color: "#000",
-  fontWeight: "bold",
   cursor: "pointer"
 };
 
 const cardStyle = {
   background: "#1e293b",
-  padding: "15px",
   marginTop: "20px",
-  borderRadius: "10px"
+  padding: "10px",
+  borderRadius: "8px"
 };
 
 const topCard = {
-  flex: "1",
-  minWidth: "250px",
-  background: "linear-gradient(135deg, #facc15, #f59e0b)",
-  padding: "15px",
-  borderRadius: "10px",
+  background: "orange",
+  padding: "10px",
+  borderRadius: "6px",
   color: "#000"
 };
 
 const listCard = {
-  display: "flex",
-  justifyContent: "space-between",
   background: "#1e293b",
-  padding: "12px",
-  borderRadius: "8px",
-  margin: "10px 0"
+  padding: "10px",
+  margin: "8px 0",
+  borderRadius: "6px"
 };

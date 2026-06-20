@@ -6,13 +6,13 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# ✅ FIXED CORS (IMPORTANT)
+# ✅ CORS FIX
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 all_predictions = []
 PICKS_FILE = "picks.csv"
 
-# ✅ LOAD PICKS ON START
+# ✅ LOAD PICKS
 if os.path.exists(PICKS_FILE):
     try:
         all_predictions = pd.read_csv(PICKS_FILE).to_dict("records")
@@ -38,35 +38,9 @@ def get_team_strength(team_name):
             ]
 
             if len(team_matches) >= 3:
-
-                if "actual_home_goals" in df.columns and "actual_away_goals" in df.columns:
-                    goals_scored = []
-                    goals_conceded = []
-                    wins = 0
-
-                    for _, row in team_matches.iterrows():
-                        if row["home"].lower() == team:
-                            goals_scored.append(row["actual_home_goals"])
-                            goals_conceded.append(row["actual_away_goals"])
-                            if row["actual_home_goals"] > row["actual_away_goals"]:
-                                wins += 1
-                        else:
-                            goals_scored.append(row["actual_away_goals"])
-                            goals_conceded.append(row["actual_home_goals"])
-                            if row["actual_away_goals"] > row["actual_home_goals"]:
-                                wins += 1
-
-                    avg_scored = sum(goals_scored) / len(goals_scored)
-                    avg_conceded = sum(goals_conceded) / len(goals_conceded)
-                    win_rate = wins / len(team_matches)
-
-                    learned_strength = (avg_scored * 0.7) + ((2 - avg_conceded) * 0.3)
-                    learned_strength += win_rate * 0.3
-                else:
-                    avg_home = team_matches["exp_home"].mean()
-                    avg_away = team_matches["exp_away"].mean()
-                    learned_strength = (avg_home + avg_away) / 2
-
+                avg_home = team_matches["exp_home"].mean()
+                avg_away = team_matches["exp_away"].mean()
+                learned_strength = (avg_home + avg_away) / 2
                 return max(0.8, min(2.2, learned_strength))
         except:
             pass
@@ -98,7 +72,7 @@ def model(h, a):
 
 
 # ===============================
-# ✅ VALUE
+# ✅ UTIL
 # ===============================
 def detect_value(prob, odds):
     return round(prob - (100 / odds), 2)
@@ -112,9 +86,6 @@ def evaluate_bet(edge, conf, total):
     return round(edge * 0.5 + conf * 0.3 + total * 2, 2)
 
 
-# ===============================
-# ✅ STORAGE
-# ===============================
 def store_prediction(data):
     file = "history.csv"
     df = pd.DataFrame([data])
@@ -125,7 +96,7 @@ def store_prediction(data):
 
 
 # ===============================
-# ✅ ROOT ROUTE
+# ✅ ROOT
 # ===============================
 @app.route("/", methods=["GET"])
 def home():
@@ -133,10 +104,11 @@ def home():
 
 
 # ===============================
-# ✅ PREDICT ROUTE
+# ✅ PREDICT (FIXED ✅)
 # ===============================
 @app.route("/api/predict", methods=["GET", "POST"])
 def predict():
+
     if request.method == "GET":
         return jsonify({
             "message": "API working ✅ Use POST",
@@ -149,8 +121,16 @@ def predict():
     try:
         data = request.get_json()
 
+        # ✅ FIX 1 — prevent crash on empty body
+        if not data:
+            return jsonify({"error": "No data received"}), 400
+
         home = data.get("home")
         away = data.get("away")
+
+        # ✅ FIX 2 — ensure valid teams
+        if not home or not away:
+            return jsonify({"error": "Missing teams"}), 400
 
         h = get_team_strength(home)
         a = get_team_strength(away)
@@ -182,7 +162,7 @@ def predict():
         return jsonify(result)
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/picks", methods=["GET"])
