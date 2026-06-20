@@ -12,52 +12,25 @@ export default function FootballOracle() {
 
   const API = "https://football-system-v50t.onrender.com";
 
-  // ✅ WAKE SERVER (UNCHANGED)
+  // ✅ WAKE SERVER PROPERLY (REAL FIX)
   const wakeServer = async () => {
     try {
       await fetch(API);
+      await new Promise(r => setTimeout(r, 15000)); // ✅ FORCE WAIT 15s
     } catch {}
   };
 
-  // ✅ ✅ ✅ FIXED FETCH (LONG TIMEOUT — CRITICAL)
-  const fetchWithRetry = async (url, options, retries = 3) => {
-    try {
-
-      const controller = new AbortController();
-
-      const timeout = setTimeout(() => {
-        controller.abort();
-      }, 90000); // ✅ 90 seconds wait
-
-      const res = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-
-      clearTimeout(timeout);
-
-      if (!res.ok) throw new Error("Server error");
-
-      return await res.json();
-
-    } catch (err) {
-
-      if (retries === 0) {
-        throw err;
-      }
-
-      console.log("Retrying...", retries);
-
-      await new Promise(r => setTimeout(r, 5000));
-
-      return fetchWithRetry(url, options, retries - 1);
-    }
+  // ✅ FETCH (KEEP SIMPLE)
+  const fetchData = async (url, options = {}) => {
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error("Server error");
+    return await res.json();
   };
 
-  // ✅ LOAD PICKS (UNCHANGED)
+  // ✅ LOAD PICKS
   const loadPicks = async () => {
     try {
-      const data = await fetchWithRetry(`${API}/api/picks`);
+      const data = await fetchData(`${API}/api/picks`);
       setTop3(data.top3 || []);
       setPicks(data.picks || []);
     } catch {
@@ -66,7 +39,6 @@ export default function FootballOracle() {
   };
 
   useEffect(() => {
-    wakeServer();
     loadPicks();
 
     const interval = setInterval(loadPicks, 10000);
@@ -75,16 +47,20 @@ export default function FootballOracle() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ ✅ PREDICTION (UNCHANGED STRUCTURE)
+  // ✅ ✅ FINAL FIXED PREDICTION
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
     setLoading(true);
-    setResult("⏳ Waiting for server (20–30 seconds)…");
+    setResult("⏳ Waking server (15–30 seconds)...");
 
     try {
 
-      const data = await fetchWithRetry(
+      // ✅ STEP 1: WAKE SERVER
+      await wakeServer();
+
+      // ✅ STEP 2: ACTUAL REQUEST
+      const data = await fetchData(
         `${API}/api/predict`,
         {
           method: "POST",
@@ -95,8 +71,7 @@ export default function FootballOracle() {
             home: homeTeam,
             away: awayTeam
           })
-        },
-        4
+        }
       );
 
       setResult(`
@@ -118,13 +93,11 @@ Best Pick: ${data.market}
       console.log("FINAL ERROR:", err);
 
       setResult(`
-❌ Server took too long
+❌ Server still waking
 
 ✅ Fix:
-1. Wait 20–40 seconds
+1. Wait 20–30 seconds
 2. Click Analyse again
-
-(Render free servers sleep)
       `);
     }
 
@@ -193,7 +166,7 @@ Best Pick: ${data.market}
   );
 }
 
-// ✅ STYLES (UNCHANGED)
+// ✅ STYLES
 
 const inputStyle = {
   display: "block",
