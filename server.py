@@ -5,14 +5,11 @@ import os
 import pandas as pd
 
 app = Flask(__name__)
-
-# ✅ CORS FIX
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 all_predictions = []
 PICKS_FILE = "picks.csv"
 
-# ✅ LOAD PICKS
 if os.path.exists(PICKS_FILE):
     try:
         all_predictions = pd.read_csv(PICKS_FILE).to_dict("records")
@@ -21,78 +18,116 @@ if os.path.exists(PICKS_FILE):
 
 
 # ===============================
-# ✅ TEAM STRENGTH
+# ✅ SAFE TEAM STRENGTH
 # ===============================
 def get_team_strength(team_name):
-    team = team_name.lower()
-    base_attack = 1.2
+    try:
+        if not team_name:
+            return 1.2
 
-    file = "history.csv"
-    if os.path.exists(file):
-        try:
+        team = str(team_name).lower()
+        base = 1.2
+
+        file = "history.csv"
+        if os.path.exists(file):
             df = pd.read_csv(file)
 
+            if "home" not in df.columns or "away" not in df.columns:
+                return base
+
             team_matches = df[
-                (df["home"].str.lower() == team) |
-                (df["away"].str.lower() == team)
+                (df["home"].astype(str).str.lower() == team) |
+                (df["away"].astype(str).str.lower() == team)
             ]
 
-            if len(team_matches) >= 3:
+            if len(team_matches) >= 3 and "exp_home" in df.columns:
                 avg_home = team_matches["exp_home"].mean()
-                avg_away = team_matches["exp_away"].mean()
-                learned_strength = (avg_home + avg_away) / 2
-                return max(0.8, min(2.2, learned_strength))
-        except:
-            pass
+                avg_home = float(avg_home) if not pd.isna(avg_home) else base
 
-    return base_attack
+                return max(0.8, min(2.2, avg_home))
+
+        return base
+    except:
+        return 1.2
 
 
 # ===============================
-# ✅ MODEL
+# ✅ SAFE MATH FUNCTIONS (FIX)
 # ===============================
 def poisson_prob(lmbda, k):
-    return (math.exp(-lmbda) * (lmbda ** k)) / math.factorial(k)
+    try:
+        lmbda = float(lmbda)
+        k = int(k)
+
+        if lmbda <= 0:
+            return 0
+
+        return (math.exp(-lmbda) * (lmbda ** k)) / math.factorial(k)
+    except:
+        return 0
 
 
 def model(h, a):
+    try:
+        h = float(h)
+        a = float(a)
+    except:
+        return 1, 1, 0, 0, 0, 0
+
     hw = dr = aw = btts = 0
+
     for x in range(6):
         for y in range(6):
             p = poisson_prob(h, x) * poisson_prob(a, y)
+
             if x > y:
                 hw += p
             elif x == y:
                 dr += p
             else:
                 aw += p
+
             if x > 0 and y > 0:
                 btts += p
+
     return h, a, hw, dr, aw, btts
 
 
 # ===============================
-# ✅ UTIL
+# ✅ HELPERS SAFE
 # ===============================
 def detect_value(prob, odds):
-    return round(prob - (100 / odds), 2)
+    try:
+        return round(float(prob) - (100 / float(odds)), 2)
+    except:
+        return 0
 
 
 def rescale_confidence(base, edge):
-    return min(10, round(base + max(0, edge / 5), 1))
+    try:
+        return min(10, round(base + max(0, edge / 5), 1))
+    except:
+        return base
 
 
 def evaluate_bet(edge, conf, total):
-    return round(edge * 0.5 + conf * 0.3 + total * 2, 2)
+    try:
+        return round(edge * 0.5 + conf * 0.3 + total * 2, 2)
+    except:
+        return 0
 
 
 def store_prediction(data):
-    file = "history.csv"
-    df = pd.DataFrame([data])
-    if os.path.exists(file):
-        df.to_csv(file, mode='a', header=False, index=False)
-    else:
-        df.to_csv(file, index=False)
+    try:
+        df = pd.DataFrame([data])
+        file = "history.csv"
+
+        if os.path.exists(file):
+            df.to_csv(file, mode='a', header=False, index=False)
+        else:
+            df.to_csv(file, index=False)
+    except:
+        pass
 
 
 # ===============================
@@ -104,31 +139,23 @@ def home():
 
 
 # ===============================
-# ✅ PREDICT (FIXED ✅)
+# ✅ FINAL SAFE PREDICT
 # ===============================
 @app.route("/api/predict", methods=["GET", "POST"])
 def predict():
 
     if request.method == "GET":
-        return jsonify({
-            "message": "API working ✅ Use POST",
-            "example": {
-                "home": "arsenal",
-                "away": "chelsea"
-            }
-        })
+        return jsonify({"message": "API live ✅"})
 
     try:
         data = request.get_json()
 
-        # ✅ FIX 1 — prevent crash on empty body
         if not data:
-            return jsonify({"error": "No data received"}), 400
+            return jsonify({"error": "No data"}), 400
 
         home = data.get("home")
         away = data.get("away")
 
-        # ✅ FIX 2 — ensure valid teams
         if not home or not away:
             return jsonify({"error": "Missing teams"}), 400
 
@@ -137,11 +164,12 @@ def predict():
 
         eh, ea, hw, dr, aw, btts = model(h, a)
 
-        total = eh + ea
-        over = min(100, max(0, (total - 2.5) * 40 + 50))
+        total = float(eh + ea)
+        over = max(0, min(100, (total - 2.5) * 40 + 50))
 
-        value_edge = detect_value(over, 2.2)
-        confidence = rescale_confidence(6, value_edge)
+        edge = detect_value(over, 2.2)
+        conf = rescale_confidence(6, edge)
+        score = evaluate_bet(edge, conf, total)
 
         result = {
             "home": home,
@@ -149,11 +177,11 @@ def predict():
             "exp_home": round(eh, 2),
             "exp_away": round(ea, 2),
             "total": round(total, 2),
-            "over_2_5": over,
-            "value_edge": value_edge,
-            "confidence": confidence,
+            "over_2_5": round(over, 2),
+            "value_edge": edge,
+            "confidence": conf,
             "market": "Over 2.5 Goals",
-            "bet_score": evaluate_bet(value_edge, confidence, total)
+            "bet_score": score
         }
 
         store_prediction(result)
@@ -162,17 +190,21 @@ def predict():
         return jsonify(result)
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("CRASH:", e)
+        return jsonify({"error": "Internal error"}), 500
 
 
+# ===============================
+# ✅ PICKS
+# ===============================
 @app.route("/api/picks", methods=["GET"])
-def get_picks():
-    s = sorted(all_predictions, key=lambda x: x["bet_score"], reverse=True)
-    return jsonify({"top3": s[:3], "picks": s[:10]})
+def picks():
+    try:
+        s = sorted(all_predictions, key=lambda x: x.get("bet_score", 0), reverse=True)
+        return jsonify({"top3": s[:3], "picks": s[:10]})
+    except:
+        return jsonify({"top3": [], "picks": []})
 
 
-# ===============================
-# ✅ RUN
-# ===============================
 if __name__ == "__main__":
     app.run(debug=True)

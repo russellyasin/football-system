@@ -12,23 +12,18 @@ export default function FootballOracle() {
 
   const API = "https://football-system-v50t.onrender.com";
 
-  // ✅ LONG WAIT FETCH (KEY FIX)
+  // ✅ SAFE FETCH
   const waitFetch = async (url, options = {}) => {
-    return new Promise(async (resolve, reject) => {
+    const res = await fetch(url, options);
 
-      let timeout = setTimeout(() => {
-        reject("timeout");
-      }, 60000); // ✅ wait up to 60 seconds
+    // ✅ CRITICAL FIX: detect backend error response
+    const data = await res.json();
 
-      try {
-        const res = await fetch(url, options);
-        clearTimeout(timeout);
-        resolve(await res.json());
-      } catch (err) {
-        clearTimeout(timeout);
-        reject(err);
-      }
-    });
+    if (!res.ok || data.error) {
+      throw new Error(data.error || "Backend error");
+    }
+
+    return data;
   };
 
   // ✅ LOAD PICKS
@@ -39,7 +34,7 @@ export default function FootballOracle() {
       setTop3(data.top3 || []);
       setPicks(data.picks || []);
     } catch {
-      console.log("picks failed (server sleeping)");
+      console.log("picks failed");
     }
   };
 
@@ -52,12 +47,12 @@ export default function FootballOracle() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ MAIN FIX HERE
+  // ✅ PREDICTION
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
     setLoading(true);
-    setResult("⏳ Connecting to live server (can take up to 30s)...");
+    setResult("⏳ Connecting...");
 
     try {
       const data = await waitFetch(`${API}/api/predict`, {
@@ -70,6 +65,11 @@ export default function FootballOracle() {
           away: awayTeam
         })
       });
+
+      // ✅ SAFE DISPLAY
+      if (!data.exp_home) {
+        throw new Error("Invalid response");
+      }
 
       setResult(`
 ${homeTeam} vs ${awayTeam}
@@ -86,12 +86,18 @@ Best Pick: ${data.market}
       `);
 
     } catch (err) {
+      console.log("ERROR:", err);
 
-      if (err === "timeout") {
-        setResult("⚠️ Server took too long. Click again once.");
-      } else {
-        setResult("❌ API error — check backend");
-      }
+      setResult(`
+❌ API issue detected
+
+Possible causes:
+• Server still waking (Render delay)
+• Backend returned error
+• Temporary network issue
+
+👉 Try again in a few seconds
+      `);
     }
 
     setLoading(false);
@@ -137,9 +143,7 @@ Best Pick: ${data.market}
         </div>
       )}
 
-      <h2 style={{ color: "#facc15" }}>
-        🔥 Top 3 Picks
-      </h2>
+      <h2 style={{ color: "#facc15" }}>🔥 Top 3 Picks</h2>
 
       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
         {top3.map((p, i) => (
@@ -149,9 +153,7 @@ Best Pick: ${data.market}
         ))}
       </div>
 
-      <h2 style={{ color: "#22c55e" }}>
-        ✅ Best Picks
-      </h2>
+      <h2 style={{ color: "#22c55e" }}>✅ Best Picks</h2>
 
       {picks.map((p, i) => (
         <div key={i} style={listCard}>
@@ -163,7 +165,7 @@ Best Pick: ${data.market}
   );
 }
 
-// styles
+// STYLES
 
 const inputStyle = {
   display: "block",
