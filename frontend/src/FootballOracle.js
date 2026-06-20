@@ -12,17 +12,30 @@ export default function FootballOracle() {
 
   const API = "https://football-system-v50t.onrender.com";
 
-  // ✅ KEEP WAKE (used only on load, NOT prediction)
+  // ✅ WAKE SERVER (UNCHANGED)
   const wakeServer = async () => {
     try {
       await fetch(API);
     } catch {}
   };
 
-  // ✅ KEEP RETRY (UNCHANGED)
+  // ✅ ✅ ✅ FIXED FETCH (LONG TIMEOUT — CRITICAL)
   const fetchWithRetry = async (url, options, retries = 3) => {
     try {
-      const res = await fetch(url, options);
+
+      const controller = new AbortController();
+
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, 90000); // ✅ 90 seconds wait
+
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeout);
+
       if (!res.ok) throw new Error("Server error");
 
       return await res.json();
@@ -41,19 +54,19 @@ export default function FootballOracle() {
     }
   };
 
-  // ✅ LOAD PICKS
+  // ✅ LOAD PICKS (UNCHANGED)
   const loadPicks = async () => {
     try {
       const data = await fetchWithRetry(`${API}/api/picks`);
       setTop3(data.top3 || []);
       setPicks(data.picks || []);
     } catch {
-      console.log("Picks failed (server sleeping)");
+      console.log("Picks failed");
     }
   };
 
   useEffect(() => {
-    wakeServer();   // ✅ only here
+    wakeServer();
     loadPicks();
 
     const interval = setInterval(loadPicks, 10000);
@@ -62,16 +75,14 @@ export default function FootballOracle() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ ✅ ✅ FIXED PREDICTION (ONLY CHANGE)
+  // ✅ ✅ PREDICTION (UNCHANGED STRUCTURE)
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
     setLoading(true);
-    setResult("⏳ Waiting for server (can take 20–30 seconds)...");
+    setResult("⏳ Waiting for server (20–30 seconds)…");
 
     try {
-
-      // ❌ REMOVED: await wakeServer();
 
       const data = await fetchWithRetry(
         `${API}/api/predict`,
@@ -107,13 +118,13 @@ Best Pick: ${data.market}
       console.log("FINAL ERROR:", err);
 
       setResult(`
-❌ First request may fail (server waking up)
+❌ Server took too long
 
 ✅ Fix:
-1. Wait 20–30 seconds
+1. Wait 20–40 seconds
 2. Click Analyse again
 
-(This is normal on Render free hosting)
+(Render free servers sleep)
       `);
     }
 
@@ -182,7 +193,7 @@ Best Pick: ${data.market}
   );
 }
 
-// ✅ STYLES
+// ✅ STYLES (UNCHANGED)
 
 const inputStyle = {
   display: "block",
