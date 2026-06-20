@@ -1,191 +1,170 @@
 import { useState, useEffect } from "react";
 
-export default function FootballOracle() {
+// ✅ ✅ FIXED URL (ONLY CHANGE)
+const API = "https://football-system-v5ot.onrender.com";
 
+const MARKET_LABELS = {
+  home_win: "Home Win",
+  draw: "Draw",
+  away_win: "Away Win",
+  btts_yes: "BTTS - Yes",
+  btts_no: "BTTS - No",
+  over_1_5: "Over 1.5",
+  under_1_5: "Under 1.5",
+  over_2_5: "Over 2.5",
+  under_2_5: "Under 2.5",
+  over_3_5: "Over 3.5",
+  under_3_5: "Under 3.5",
+};
+
+const ODDS_FIELDS = [
+  "home_win",
+  "draw",
+  "away_win",
+  "btts_yes",
+  "over_2_5",
+  "under_2_5"
+];
+
+export default function FootballOracle() {
+  const [tab, setTab] = useState("predict");
+
+  return (
+    <div style={page}>
+      <h1>⚽ Football Oracle</h1>
+
+      <div style={tabRow}>
+        <button onClick={() => setTab("predict")} style={tab === "predict" ? tabBtnActive : tabBtn}>
+          Predict
+        </button>
+        <button onClick={() => setTab("track")} style={tab === "track" ? tabBtnActive : tabBtn}>
+          Track Results & Accuracy
+        </button>
+      </div>
+
+      {tab === "predict" ? <PredictPanel /> : <TrackPanel />}
+    </div>
+  );
+}
+
+/* ============================= */
+/* ✅ PREDICT PANEL */
+/* ============================= */
+function PredictPanel() {
   const [homeTeam, setHomeTeam] = useState("");
   const [awayTeam, setAwayTeam] = useState("");
-  const [result, setResult] = useState("");
+  const [rho, setRho] = useState(0.1);
+  const [odds, setOdds] = useState({});
+  const [showOdds, setShowOdds] = useState(false);
+
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [waking, setWaking] = useState(false);
-  const [serverReady, setServerReady] = useState(false);
-
-  const [picks, setPicks] = useState([]);
-  const [top3, setTop3] = useState([]);
-
-  // ✅ ✅ ✅ FIXED API (ONLY CHANGE)
-  const API = "https://football-system-v5ot.onrender.com";
-
-  const wakeServer = async () => {
-    setWaking(true);
-    setServerReady(false);
-
-    const MAX_ATTEMPTS = 12;
-    const DELAY_MS = 5000;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      setResult(`⏳ Starting server (attempt ${attempt}/${MAX_ATTEMPTS})...`);
-
-      try {
-        const res = await fetch(API);
-        if (res.ok) {
-          setServerReady(true);
-          setResult("✅ Server ready — now click Analyse");
-          setWaking(false);
-          return;
-        }
-      } catch {
-        // ignore while waking
-      }
-
-      if (attempt < MAX_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, DELAY_MS));
-      }
-    }
-
-    setResult("❌ Server still sleeping after a minute — try clicking Wake Server again");
-    setWaking(false);
-  };
-
-  const fetchData = async (url, options = {}) => {
-    const res = await fetch(url, options);
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || "Server error");
-    return data;
-  };
-
-  const loadPicks = async () => {
-    try {
-      const data = await fetchData(`${API}/api/picks`);
-      const list = data.picks || [];
-      setPicks(list);
-      setTop3(list.slice(0, 3));
-    } catch {}
-  };
-
-  useEffect(() => {
-    loadPicks();
-    const interval = setInterval(loadPicks, 10000);
-    return () => clearInterval(interval);
-  }, []);
 
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
-    if (!serverReady) {
-      setResult("⚠️ Click 'Wake Server' first");
-      return;
-    }
-
     setLoading(true);
-    setResult("⏳ Getting prediction...");
+    setError("");
+    setResult(null);
 
     try {
-      const data = await fetchData(`${API}/api/predict`, {
+      const res = await fetch(`${API}/api/predict`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           home: homeTeam,
-          away: awayTeam
+          away: awayTeam,
+          rho,
+          odds
         })
       });
 
-      const top = data.top_scorelines && data.top_scorelines[0];
+      const data = await res.json();
 
-      setResult(`
-${homeTeam} vs ${awayTeam}
+      if (!res.ok || data.error) throw new Error(data.error);
 
-Expected Goals:
-Home: ${data.exp_home}
-Away: ${data.exp_away}
+      setResult(data);
 
-Home Win: ${data.markets.home_win}%
-Draw: ${data.markets.draw}%
-Away Win: ${data.markets.away_win}%
-BTTS: ${data.markets.btts_yes}%
-Over 2.5: ${data.markets.over_2_5}%
-
-Most Likely Score: ${top ? `${top.home}-${top.away} (${top.prob_pct}%)` : "n/a"}
-Best Pick: ${data.best_pick}
-      `);
-
-    } catch {
-      setResult("❌ Failed — try again");
+    } catch (err) {
+      setError("❌ API failed — try again (server may be waking)");
     }
 
     setLoading(false);
   };
 
   return (
-    <div style={{
-      background: "#0f172a",
-      minHeight: "100vh",
-      color: "#fff",
-      padding: "20px"
-    }}>
+    <div style={card}>
+      <input placeholder="Home Team" value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle} />
+      <input placeholder="Away Team" value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle} />
 
-      <h1 style={{ color: "#38bdf8" }}>⚽ Football Oracle</h1>
-
-      <button onClick={wakeServer} style={buttonStyle} disabled={waking}>
-        {waking ? "🔄 Waking..." : "🔄 Wake Server"}
+      <button onClick={runPrediction} style={buttonStyle}>
+        {loading ? "Analysing..." : "Analyse Match"}
       </button>
 
-      <div style={{
-        background: "#1e293b",
-        padding: "20px",
-        borderRadius: "10px"
-      }}>
-        <input
-          placeholder="Home Team"
-          value={homeTeam}
-          onChange={(e) => setHomeTeam(e.target.value)}
-          style={inputStyle}
-        />
+      {error && <div>{error}</div>}
 
-        <input
-          placeholder="Away Team"
-          value={awayTeam}
-          onChange={(e) => setAwayTeam(e.target.value)}
-          style={inputStyle}
-        />
-
-        <button onClick={runPrediction} style={buttonStyle}>
-          {loading ? "Analyzing..." : "Analyse Match"}
-        </button>
-      </div>
-
-      {result && (
-        <div style={cardStyle}>
-          <pre>{result}</pre>
-        </div>
-      )}
-
-      <h2 style={{ color: "#facc15" }}>🔥 Top 3 Picks</h2>
-
-      <div style={{ display: "flex", gap: "10px" }}>
-        {top3.map((p, i) => (
-          <div key={i} style={topCard}>
-            {p.home} vs {p.away}
-          </div>
-        ))}
-      </div>
-
-      <h2 style={{ color: "#22c55e" }}>✅ Best Picks</h2>
-
-      {picks.map((p, i) => (
-        <div key={i} style={listCard}>
-          {p.home} vs {p.away} → {p.best_pick}
-        </div>
-      ))}
-
+      {result && <ResultDisplay result={result} />}
     </div>
   );
 }
 
-// styles unchanged
-const inputStyle = { padding: "10px", margin: "10px 0", width: "100%" };
-const buttonStyle = { padding: "10px", margin: "10px 5px", cursor: "pointer" };
-const cardStyle = { marginTop: "20px", padding: "10px", background: "#1e293b" };
-const topCard = { background: "orange", padding: "10px" };
-const listCard = { background: "#1e293b", padding: "10px", margin: "8px 0" };
+/* ============================= */
+/* ✅ RESULT DISPLAY */
+/* ============================= */
+function ResultDisplay({ result }) {
+  return (
+    <div>
+      <h2>{result.home} vs {result.away}</h2>
+
+      <p>xG: {result.exp_home} - {result.exp_away}</p>
+
+      <h3>Markets</h3>
+      {Object.keys(result.markets || {}).map(k => (
+        <div key={k}>
+          {MARKET_LABELS[k] || k}: {result.markets[k]}%
+        </div>
+      ))}
+
+      <h3>Best Pick:</h3>
+      <b>{result.best_pick}</b>
+    </div>
+  );
+}
+
+/* ============================= */
+/* ✅ TRACK PANEL */
+/* ============================= */
+function TrackPanel() {
+  const [picks, setPicks] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API}/api/picks`)
+      .then(res => res.json())
+      .then(data => setPicks(data.picks || []))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div>
+      {picks.map((p,i) => (
+        <div key={i}>
+          {p.home} vs {p.away} → {p.best_pick}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ============================= */
+/* STYLES */
+/* ============================= */
+const page = { padding: 20 };
+const card = { padding: 20, background: "#1e293b" };
+const tabRow = { display: "flex", gap: 10 };
+const tabBtn = { padding: 10 };
+const tabBtnActive = { padding: 10, background: "blue", color: "#fff" };
+const inputStyle = { display: "block", margin: 10 };
+const buttonStyle = { padding: 10 };
