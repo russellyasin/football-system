@@ -12,16 +12,14 @@ export default function FootballOracle() {
 
   const API = "https://football-system-v50t.onrender.com";
 
-  // ✅ WAKE SERVER FIRST (CRITICAL)
+  // ✅ KEEP WAKE (used only on load, NOT prediction)
   const wakeServer = async () => {
     try {
       await fetch(API);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  // ✅ RETRY FETCH (FINAL FIX)
+  // ✅ KEEP RETRY (UNCHANGED)
   const fetchWithRetry = async (url, options, retries = 3) => {
     try {
       const res = await fetch(url, options);
@@ -37,7 +35,6 @@ export default function FootballOracle() {
 
       console.log("Retrying...", retries);
 
-      // wait 5s then retry
       await new Promise(r => setTimeout(r, 5000));
 
       return fetchWithRetry(url, options, retries - 1);
@@ -56,7 +53,7 @@ export default function FootballOracle() {
   };
 
   useEffect(() => {
-    wakeServer(); // ✅ wake backend on load
+    wakeServer();   // ✅ only here
     loadPicks();
 
     const interval = setInterval(loadPicks, 10000);
@@ -65,16 +62,16 @@ export default function FootballOracle() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ PREDICT
+  // ✅ ✅ ✅ FIXED PREDICTION (ONLY CHANGE)
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
     setLoading(true);
-    setResult("⏳ Connecting to server (first request may take 30–60s)...");
+    setResult("⏳ Waiting for server (can take 20–30 seconds)...");
 
     try {
-      // ✅ ensure server is awake
-      await wakeServer();
+
+      // ❌ REMOVED: await wakeServer();
 
       const data = await fetchWithRetry(
         `${API}/api/predict`,
@@ -88,7 +85,7 @@ export default function FootballOracle() {
             away: awayTeam
           })
         },
-        4 // more retries
+        4
       );
 
       setResult(`
@@ -110,15 +107,13 @@ Best Pick: ${data.market}
       console.log("FINAL ERROR:", err);
 
       setResult(`
-❌ Connection failed
-
-Reason: Server is sleeping or temporarily unreachable
+❌ First request may fail (server waking up)
 
 ✅ Fix:
-1. Wait ~30 seconds
+1. Wait 20–30 seconds
 2. Click Analyse again
 
-(This is normal on Render free plan)
+(This is normal on Render free hosting)
       `);
     }
 
@@ -187,7 +182,7 @@ Reason: Server is sleeping or temporarily unreachable
   );
 }
 
-// styles
+// ✅ STYLES
 
 const inputStyle = {
   display: "block",
