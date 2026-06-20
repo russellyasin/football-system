@@ -17,12 +17,31 @@ if not os.path.exists(PICKS_FILE):
     pd.DataFrame().to_csv(PICKS_FILE, index=False)
 
 if not os.path.exists(HISTORY_FILE):
-    pd.DataFrame(columns=[
-        "match_id", "date", "league",
-        "home", "away",
-        "exp_home", "exp_away",
-        "actual_home_goals", "actual_away_goals"
-    ]).to_csv(HISTORY_FILE, index=False)
+    pd.DataFrame().to_csv(HISTORY_FILE, index=False)
+
+# ✅ ✅ CRITICAL FIX: FORCE REQUIRED COLUMNS (WORKS ON OLD FILE)
+def ensure_columns():
+    try:
+        df = pd.read_csv(HISTORY_FILE)
+
+        required_cols = [
+            "match_id", "date", "league",
+            "home", "away",
+            "exp_home", "exp_away",
+            "actual_home_goals", "actual_away_goals",
+            "total", "over_2_5", "confidence", "market"
+        ]
+
+        for col in required_cols:
+            if col not in df.columns:
+                df[col] = None
+
+        df.to_csv(HISTORY_FILE, index=False)
+
+    except Exception as e:
+        print("COLUMN FIX ERROR:", e)
+
+ensure_columns()
 
 try:
     all_predictions = pd.read_csv(PICKS_FILE).to_dict("records")
@@ -38,7 +57,7 @@ def normalize_team(name):
 
 
 # ===============================
-# ✅ UPDATE OR STORE (WITH MATCH ID)
+# ✅ FIXED STORE (NO DUPLICATE + ADD ID/DATE/LEAGUE)
 # ===============================
 def update_or_store_prediction(data):
     try:
@@ -52,13 +71,14 @@ def update_or_store_prediction(data):
 
         mask = (df["home_norm"] == home_n) & (df["away_norm"] == away_n)
 
-        # ✅ ONLY ADD IF NOT EXIST
         if not mask.any():
-            data["match_id"] = str(uuid.uuid4())  # ✅ UNIQUE ID
+            data["match_id"] = str(uuid.uuid4())
             data["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            data["league"] = data.get("league", "UNKNOWN")
+
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
         else:
-            print("✅ Match already exists")
+            print("✅ Duplicate avoided")
 
         df = df.drop(columns=["home_norm", "away_norm"], errors="ignore")
         df.to_csv(HISTORY_FILE, index=False)
@@ -75,6 +95,9 @@ def get_team_strength(team_name):
         team = normalize_team(team_name)
         df = pd.read_csv(HISTORY_FILE)
 
+        if df.empty:
+            return 1.2
+
         df["home_norm"] = df["home"].astype(str).apply(normalize_team)
         df["away_norm"] = df["away"].astype(str).apply(normalize_team)
 
@@ -85,11 +108,14 @@ def get_team_strength(team_name):
 
         if len(matches) >= 3:
             avg = matches["exp_home"].mean()
+            if pd.isna(avg):
+                return 1.2
             return max(0.8, min(2.2, float(avg)))
 
         return 1.2
 
-    except:
+    except Exception as e:
+        print("TEAM ERROR:", e)
         return 1.2
 
 
@@ -124,6 +150,30 @@ def model(h, a):
 
 
 # ===============================
+# ✅ HELPERS
+# ===============================
+def detect_value(prob, odds):
+    try:
+        return round(prob - (100 / odds), 2)
+    except:
+        return 0
+
+
+def rescale_confidence(base, edge):
+    try:
+        return min(10, round(base + max(0, edge / 5), 1))
+    except:
+        return base
+
+
+def evaluate_bet(edge, conf, total):
+    try:
+        return round(edge * 0.5 + conf * 0.3 + total * 2, 2)
+    except:
+        return 0
+
+
+# ===============================
 # ✅ ROOT
 # ===============================
 @app.route("/")
@@ -132,7 +182,7 @@ def home():
 
 
 # ===============================
-# ✅ PREDICT (UPDATED WITH LEAGUE + ID)
+# ✅ PREDICT (NOW INCLUDES LEAGUE + ID)
 # ===============================
 @app.route("/api/predict", methods=["POST"])
 def predict():
@@ -141,15 +191,22 @@ def predict():
 
         home = data.get("home")
         away = data.get("away")
-        league = data.get("league", "Unknown")  # ✅ NEW
+        league = data.get("league", "UNKNOWN")
+
+        if not home or not away:
+            return jsonify({"error": "missing teams"}), 400
 
         h = get_team_strength(home)
         a = get_team_strength(away)
 
         eh, ea, hw, dr, aw, btts = model(h, a)
 
-        total = eh + ea
+        total = float(eh + ea)
         over = max(0, min(100, (total - 2.5) * 40 + 50))
+
+        edge = detect_value(over, 2.2)
+        conf = rescale_confidence(6, edge)
+        score = evaluate_bet(edge, conf, total)
 
         result = {
             "home": home,
@@ -159,7 +216,7 @@ def predict():
             "exp_away": round(ea, 2),
             "total": round(total, 2),
             "over_2_5": round(over, 2),
-            "confidence": 6,
+            "confidence": conf,
             "market": "Over 2.5 Goals"
         }
 
@@ -172,7 +229,7 @@ def predict():
 
 
 # ===============================
-# ✅ RESULT UPDATE (USES MATCH ID MATCHING LOGIC)
+# ✅ RESULT UPDATE (FIXED)
 # ===============================
 @app.route("/api/result", methods=["POST"])
 def update_result():
@@ -181,7 +238,6 @@ def update_result():
 
         home = data.get("home")
         away = data.get("away")
-
         hg = data.get("home_goals")
         ag = data.get("away_goals")
 
