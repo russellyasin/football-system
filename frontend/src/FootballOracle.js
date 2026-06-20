@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-// ✅ FIXED API
+// ✅ ✅ FIXED (NO HTML, REAL URL)
 const API = "https://football-system-v5ot.onrender.com";
 
 const MARKET_LABELS = {
@@ -52,7 +52,6 @@ function PredictPanel() {
   const [picks, setPicks] = useState([]);
   const [top3, setTop3] = useState([]);
 
-  // ✅ WAKE SERVER
   const wakeServer = async () => {
     setWaking(true);
     setServerReady(false);
@@ -74,7 +73,6 @@ function PredictPanel() {
     setWaking(false);
   };
 
-  // ✅ FETCH HELP
   const fetchData = async (url, options = {}) => {
     const res = await fetch(url, options);
     const data = await res.json();
@@ -82,7 +80,6 @@ function PredictPanel() {
     return data;
   };
 
-  // ✅ LOAD PICKS
   const loadPicks = async () => {
     try {
       const data = await fetchData(`${API}/api/picks`);
@@ -96,7 +93,6 @@ function PredictPanel() {
     loadPicks();
   }, []);
 
-  // ✅ RUN PREDICTION
   const runPrediction = async () => {
 
     if (!homeTeam || !awayTeam) return;
@@ -119,11 +115,10 @@ function PredictPanel() {
         body: JSON.stringify({
           home: homeTeam,
           away: awayTeam,
-          league
+          league   // ✅ now correctly sent
         })
       });
 
-      // ✅ HANDLE BOTH API TYPES (SMART MERGE)
       if (data.markets) {
         setResult(`
 ${data.home} vs ${data.away}
@@ -137,7 +132,6 @@ ${Object.keys(data.markets).map(k =>
 Best Pick: ${data.best_pick}
         `);
       } else {
-        // ✅ fallback old API
         setResult(`
 ${homeTeam} vs ${awayTeam}
 
@@ -163,7 +157,6 @@ Best Pick: ${data.market}
   return (
     <div style={card}>
 
-      {/* ✅ LEAGUE SELECT */}
       <select value={league} onChange={e => setLeague(e.target.value)} style={inputStyle}>
         <option value="EPL">EPL</option>
         <option value="LA_LIGA">La Liga</option>

@@ -5,119 +5,57 @@ import os
 import pandas as pd
 import uuid
 from datetime import datetime
+import sqlite3
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-PICKS_FILE = "picks.csv"
-HISTORY_FILE = "history.csv"
-
-# ✅ SAFE FILE INIT
-if not os.path.exists(PICKS_FILE):
-    pd.DataFrame().to_csv(PICKS_FILE, index=False)
-
-if not os.path.exists(HISTORY_FILE):
-    pd.DataFrame().to_csv(HISTORY_FILE, index=False)
-
-# ✅ ✅ CRITICAL FIX: FORCE REQUIRED COLUMNS (WORKS ON OLD FILE)
-def ensure_columns():
-    try:
-        df = pd.read_csv(HISTORY_FILE)
-
-        required_cols = [
-            "match_id", "date", "league",
-            "home", "away",
-            "exp_home", "exp_away",
-            "actual_home_goals", "actual_away_goals",
-            "total", "over_2_5", "confidence", "market"
-        ]
-
-        for col in required_cols:
-            if col not in df.columns:
-                df[col] = None
-
-        df.to_csv(HISTORY_FILE, index=False)
-
-    except Exception as e:
-        print("COLUMN FIX ERROR:", e)
-
-ensure_columns()
-
-try:
-    all_predictions = pd.read_csv(PICKS_FILE).to_dict("records")
-except:
-    all_predictions = []
-
+# ✅ DATABASE FILE
+DB_FILE = "database.db"
 
 # ===============================
-# ✅ NORMALIZE TEAM
+# ✅ DB CONNECTION
 # ===============================
-def normalize_team(name):
-    return str(name).lower().strip().replace(" fc", "")
-
-
-# ===============================
-# ✅ FIXED STORE (NO DUPLICATE + ADD ID/DATE/LEAGUE)
-# ===============================
-def update_or_store_prediction(data):
-    try:
-        df = pd.read_csv(HISTORY_FILE)
-
-        home_n = normalize_team(data["home"])
-        away_n = normalize_team(data["away"])
-
-        df["home_norm"] = df["home"].astype(str).apply(normalize_team)
-        df["away_norm"] = df["away"].astype(str).apply(normalize_team)
-
-        mask = (df["home_norm"] == home_n) & (df["away_norm"] == away_n)
-
-        if not mask.any():
-            data["match_id"] = str(uuid.uuid4())
-            data["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-            data["league"] = data.get("league", "UNKNOWN")
-
-            df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
-        else:
-            print("✅ Duplicate avoided")
-
-        df = df.drop(columns=["home_norm", "away_norm"], errors="ignore")
-        df.to_csv(HISTORY_FILE, index=False)
-
-    except Exception as e:
-        print("STORE ERROR:", e)
-
+def get_conn():
+    return sqlite3.connect(DB_FILE)
 
 # ===============================
-# ✅ TEAM STRENGTH
+# ✅ INIT DATABASE
 # ===============================
-def get_team_strength(team_name):
-    try:
-        team = normalize_team(team_name)
-        df = pd.read_csv(HISTORY_FILE)
+def init_db():
+    conn = get_conn()
+    c = conn.cursor()
 
-        if df.empty:
-            return 1.2
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS history (
+        date TEXT,
+        match_id TEXT,
+        home TEXT,
+        away TEXT,
+        league TEXT,
+        actual_home_goals TEXT,
+        actual_away_goals TEXT,
+        exp_home REAL,
+        exp_away REAL,
+        total REAL,
+        home_win_prob REAL,
+        draw_prob REAL,
+        away_win_prob REAL,
+        btts_prob REAL,
+        over_2_5 REAL,
+        under_2_5 REAL,
+        btts_strength REAL,
+        handicap_edge REAL,
+        value_edge REAL,
+        confidence REAL,
+        best_pick TEXT
+    )
+    """)
 
-        df["home_norm"] = df["home"].astype(str).apply(normalize_team)
-        df["away_norm"] = df["away"].astype(str).apply(normalize_team)
+    conn.commit()
+    conn.close()
 
-        matches = df[
-            (df["home_norm"] == team) |
-            (df["away_norm"] == team)
-        ]
-
-        if len(matches) >= 3:
-            avg = matches["exp_home"].mean()
-            if pd.isna(avg):
-                return 1.2
-            return max(0.8, min(2.2, float(avg)))
-
-        return 1.2
-
-    except Exception as e:
-        print("TEAM ERROR:", e)
-        return 1.2
-
+init_db()
 
 # ===============================
 # ✅ MODEL
@@ -127,7 +65,6 @@ def poisson_prob(lmbda, k):
         return (math.exp(-lmbda) * (lmbda ** k)) / math.factorial(k)
     except:
         return 0
-
 
 def model(h, a):
     hw = dr = aw = btts = 0
@@ -150,27 +87,44 @@ def model(h, a):
 
 
 # ===============================
-# ✅ HELPERS
+# ✅ STORE (FINAL FIX)
 # ===============================
-def detect_value(prob, odds):
+def store_prediction(data):
     try:
-        return round(prob - (100 / odds), 2)
-    except:
-        return 0
+        conn = get_conn()
+        c = conn.cursor()
 
+        c.execute("""
+        INSERT INTO history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            datetime.now().strftime("%Y-%m-%d %H:%M"),
+            str(uuid.uuid4()),
+            data.get("home", ""),
+            data.get("away", ""),
+            data.get("league", "UNKNOWN"),
 
-def rescale_confidence(base, edge):
-    try:
-        return min(10, round(base + max(0, edge / 5), 1))
-    except:
-        return base
+            "",  # actual_home_goals
+            "",  # actual_away_goals
 
+            data.get("exp_home"),
+            data.get("exp_away"),
+            data.get("total"),
 
-def evaluate_bet(edge, conf, total):
-    try:
-        return round(edge * 0.5 + conf * 0.3 + total * 2, 2)
-    except:
-        return 0
+            None, None, None, None,  # probabilities
+            data.get("over_2_5"),
+            None, None, None, None,
+
+            data.get("confidence"),
+            data.get("market")
+        ))
+
+        conn.commit()
+        conn.close()
+
+        print("✅ SAVED TO DB")
+
+    except Exception as e:
+        print("STORE ERROR:", e)
 
 
 # ===============================
@@ -182,7 +136,7 @@ def home():
 
 
 # ===============================
-# ✅ PREDICT (NOW INCLUDES LEAGUE + ID)
+# ✅ PREDICT
 # ===============================
 @app.route("/api/predict", methods=["POST"])
 def predict():
@@ -196,17 +150,12 @@ def predict():
         if not home or not away:
             return jsonify({"error": "missing teams"}), 400
 
-        h = get_team_strength(home)
-        a = get_team_strength(away)
+        # ✅ simple base model
+        h, a = 1.5, 1.2
 
         eh, ea, hw, dr, aw, btts = model(h, a)
-
-        total = float(eh + ea)
+        total = eh + ea
         over = max(0, min(100, (total - 2.5) * 40 + 50))
-
-        edge = detect_value(over, 2.2)
-        conf = rescale_confidence(6, edge)
-        score = evaluate_bet(edge, conf, total)
 
         result = {
             "home": home,
@@ -216,11 +165,12 @@ def predict():
             "exp_away": round(ea, 2),
             "total": round(total, 2),
             "over_2_5": round(over, 2),
-            "confidence": conf,
+            "confidence": 6,
             "market": "Over 2.5 Goals"
         }
 
-        update_or_store_prediction(result)
+        # ✅ STORE IN DATABASE (FIXED)
+        store_prediction(result)
 
         return jsonify(result)
 
@@ -229,50 +179,27 @@ def predict():
 
 
 # ===============================
-# ✅ RESULT UPDATE (FIXED)
-# ===============================
-@app.route("/api/result", methods=["POST"])
-def update_result():
-    try:
-        data = request.get_json(force=True)
-
-        home = data.get("home")
-        away = data.get("away")
-        hg = data.get("home_goals")
-        ag = data.get("away_goals")
-
-        df = pd.read_csv(HISTORY_FILE)
-
-        df["home_norm"] = df["home"].apply(normalize_team)
-        df["away_norm"] = df["away"].apply(normalize_team)
-
-        mask = (
-            (df["home_norm"] == normalize_team(home)) &
-            (df["away_norm"] == normalize_team(away))
-        )
-
-        if mask.any():
-            df.loc[mask, "actual_home_goals"] = hg
-            df.loc[mask, "actual_away_goals"] = ag
-
-        df = df.drop(columns=["home_norm", "away_norm"], errors="ignore")
-        df.to_csv(HISTORY_FILE, index=False)
-
-        return jsonify({"status": "updated"})
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ===============================
-# ✅ PICKS
+# ✅ PICKS (READ FROM DB)
 # ===============================
 @app.route("/api/picks")
 def picks():
     try:
-        df = pd.read_csv(HISTORY_FILE)
-        return jsonify({"top3": [], "picks": df.to_dict("records")[-10:]})
-    except:
+        conn = get_conn()
+
+        df = pd.read_sql_query(
+            "SELECT * FROM history ORDER BY ROWID DESC LIMIT 10",
+            conn
+        )
+
+        conn.close()
+
+        return jsonify({
+            "top3": df.head(3).to_dict("records"),
+            "picks": df.to_dict("records")
+        })
+
+    except Exception as e:
+        print("PICKS ERROR:", e)
         return jsonify({"top3": [], "picks": []})
 
 
