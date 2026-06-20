@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-// ✅ ✅ FIXED URL (ONLY CHANGE)
+// ✅ ✅ FIXED URL (REMOVED HTML BUG)
 const API = "https://football-system-v5ot.onrender.com";
 
 const MARKET_LABELS = {
@@ -57,6 +57,9 @@ function PredictPanel() {
   const [odds, setOdds] = useState({});
   const [showOdds, setShowOdds] = useState(false);
 
+  // ✅ ✅ MULTI-LEAGUE (ADDED — NO STRUCTURE CHANGE)
+  const [league, setLeague] = useState("DEFAULT");
+
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -78,7 +81,8 @@ function PredictPanel() {
           home: homeTeam,
           away: awayTeam,
           rho,
-          odds
+          odds,
+          league   // ✅ ✅ NEW FIELD
         })
       });
 
@@ -97,6 +101,16 @@ function PredictPanel() {
 
   return (
     <div style={card}>
+
+      {/* ✅ ✅ MULTI-LEAGUE DROPDOWN */}
+      <select value={league} onChange={e => setLeague(e.target.value)} style={inputStyle}>
+        <option value="EPL">EPL</option>
+        <option value="LA_LIGA">La Liga</option>
+        <option value="SERIE_A">Serie A</option>
+        <option value="BUNDESLIGA">Bundesliga</option>
+        <option value="DEFAULT">Other</option>
+      </select>
+
       <input placeholder="Home Team" value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle} />
       <input placeholder="Away Team" value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle} />
 
