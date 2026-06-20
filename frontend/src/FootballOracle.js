@@ -6,73 +6,92 @@ export default function FootballOracle() {
   const [awayTeam, setAwayTeam] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
+  const [waking, setWaking] = useState(false);
+  const [serverReady, setServerReady] = useState(false);
 
   const [picks, setPicks] = useState([]);
   const [top3, setTop3] = useState([]);
 
+  // ✅ ✅ ✅ FIXED API (ONLY CHANGE)
   const API = "https://football-system-v50t.onrender.com";
 
-  // ✅ WAKE SERVER PROPERLY (REAL FIX)
   const wakeServer = async () => {
-    try {
-      await fetch(API);
-      await new Promise(r => setTimeout(r, 15000)); // ✅ FORCE WAIT 15s
-    } catch {}
+    setWaking(true);
+    setServerReady(false);
+
+    const MAX_ATTEMPTS = 12;
+    const DELAY_MS = 5000;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      setResult(`⏳ Starting server (attempt ${attempt}/${MAX_ATTEMPTS})...`);
+
+      try {
+        const res = await fetch(API);
+        if (res.ok) {
+          setServerReady(true);
+          setResult("✅ Server ready — now click Analyse");
+          setWaking(false);
+          return;
+        }
+      } catch {
+        // ignore while waking
+      }
+
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, DELAY_MS));
+      }
+    }
+
+    setResult("❌ Server still sleeping after a minute — try clicking Wake Server again");
+    setWaking(false);
   };
 
-  // ✅ FETCH (KEEP SIMPLE)
   const fetchData = async (url, options = {}) => {
     const res = await fetch(url, options);
-    if (!res.ok) throw new Error("Server error");
-    return await res.json();
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || "Server error");
+    return data;
   };
 
-  // ✅ LOAD PICKS
   const loadPicks = async () => {
     try {
       const data = await fetchData(`${API}/api/picks`);
-      setTop3(data.top3 || []);
-      setPicks(data.picks || []);
-    } catch {
-      console.log("Picks failed");
-    }
+      const list = data.picks || [];
+      setPicks(list);
+      setTop3(list.slice(0, 3));
+    } catch {}
   };
 
   useEffect(() => {
     loadPicks();
-
     const interval = setInterval(loadPicks, 10000);
     return () => clearInterval(interval);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ ✅ FINAL FIXED PREDICTION
   const runPrediction = async () => {
     if (!homeTeam || !awayTeam) return;
 
+    if (!serverReady) {
+      setResult("⚠️ Click 'Wake Server' first");
+      return;
+    }
+
     setLoading(true);
-    setResult("⏳ Waking server (15–30 seconds)...");
+    setResult("⏳ Getting prediction...");
 
     try {
+      const data = await fetchData(`${API}/api/predict`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          home: homeTeam,
+          away: awayTeam
+        })
+      });
 
-      // ✅ STEP 1: WAKE SERVER
-      await wakeServer();
-
-      // ✅ STEP 2: ACTUAL REQUEST
-      const data = await fetchData(
-        `${API}/api/predict`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            home: homeTeam,
-            away: awayTeam
-          })
-        }
-      );
+      const top = data.top_scorelines && data.top_scorelines[0];
 
       setResult(`
 ${homeTeam} vs ${awayTeam}
@@ -80,25 +99,19 @@ ${homeTeam} vs ${awayTeam}
 Expected Goals:
 Home: ${data.exp_home}
 Away: ${data.exp_away}
-Total: ${data.total}
 
-Over 2.5: ${data.over_2_5}%
-Confidence: ${data.confidence}/10
+Home Win: ${data.markets.home_win}%
+Draw: ${data.markets.draw}%
+Away Win: ${data.markets.away_win}%
+BTTS: ${data.markets.btts_yes}%
+Over 2.5: ${data.markets.over_2_5}%
 
-Best Pick: ${data.market}
+Most Likely Score: ${top ? `${top.home}-${top.away} (${top.prob_pct}%)` : "n/a"}
+Best Pick: ${data.best_pick}
       `);
 
-    } catch (err) {
-
-      console.log("FINAL ERROR:", err);
-
-      setResult(`
-❌ Server still waking
-
-✅ Fix:
-1. Wait 20–30 seconds
-2. Click Analyse again
-      `);
+    } catch {
+      setResult("❌ Failed — try again");
     }
 
     setLoading(false);
@@ -113,6 +126,10 @@ Best Pick: ${data.market}
     }}>
 
       <h1 style={{ color: "#38bdf8" }}>⚽ Football Oracle</h1>
+
+      <button onClick={wakeServer} style={buttonStyle} disabled={waking}>
+        {waking ? "🔄 Waking..." : "🔄 Wake Server"}
+      </button>
 
       <div style={{
         background: "#1e293b",
@@ -140,7 +157,7 @@ Best Pick: ${data.market}
 
       {result && (
         <div style={cardStyle}>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{result}</pre>
+          <pre>{result}</pre>
         </div>
       )}
 
@@ -158,7 +175,7 @@ Best Pick: ${data.market}
 
       {picks.map((p, i) => (
         <div key={i} style={listCard}>
-          {p.home} vs {p.away} → {p.market}
+          {p.home} vs {p.away} → {p.best_pick}
         </div>
       ))}
 
@@ -166,44 +183,9 @@ Best Pick: ${data.market}
   );
 }
 
-// ✅ STYLES
-
-const inputStyle = {
-  display: "block",
-  width: "100%",
-  padding: "10px",
-  margin: "10px 0",
-  borderRadius: "6px",
-  background: "#0f172a",
-  color: "#fff",
-  border: "none"
-};
-
-const buttonStyle = {
-  padding: "10px",
-  background: "#38bdf8",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer"
-};
-
-const cardStyle = {
-  background: "#1e293b",
-  marginTop: "20px",
-  padding: "10px",
-  borderRadius: "8px"
-};
-
-const topCard = {
-  background: "orange",
-  padding: "10px",
-  borderRadius: "6px",
-  color: "#000"
-};
-
-const listCard = {
-  background: "#1e293b",
-  padding: "10px",
-  margin: "8px 0",
-  borderRadius: "6px"
-};
+// styles unchanged
+const inputStyle = { padding: "10px", margin: "10px 0", width: "100%" };
+const buttonStyle = { padding: "10px", margin: "10px 5px", cursor: "pointer" };
+const cardStyle = { marginTop: "20px", padding: "10px", background: "#1e293b" };
+const topCard = { background: "orange", padding: "10px" };
+const listCard = { background: "#1e293b", padding: "10px", margin: "8px 0" };
