@@ -2,6 +2,3 @@ flask
 flask-cors
 pandas
 gunicorn
-requests
-numpy
-scipy
