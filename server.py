@@ -1101,7 +1101,7 @@ def history():
 # league + home + away + commence_time) before creating a new one, so
 # re-checking the same upcoming match doesn't spam duplicate rows.
 # ===============================
-def get_or_create_fixture_prediction(conn, league, home, away, commence_time, rho=None):
+def get_or_create_fixture_prediction(conn, league, home, away, commence_time, rho=None, architecture="Statistical Baseline"):
     existing = None
     if commence_time:
         cur = conn.execute(
@@ -1115,10 +1115,17 @@ def get_or_create_fixture_prediction(conn, league, home, away, commence_time, rh
         if row:
             cols = [d[0] for d in cur.description]
             existing = dict(zip(cols, row))
-
-    exp_home, exp_away, sample_size, fitted_rho, model_type = expected_goals(home, away, league)
-    rho_to_use = rho if rho is not None else fitted_rho
+# 1. Calculate expected goals using the selected hybrid ML architecture layer
+    exp_home, exp_away, sample_size, f_rho, model_type = expected_goals(home, away, league, architecture)
+    
+    # 2. Reconcile whether a manual override or a fitted rho parameter should be applied
+    rho_to_use = rho if rho is not None else f_rho
+    rho_to_use = max(-0.3, min(0.3, rho_to_use)) # Keeps matrix probability distribution stable
+    
+    # 3. Generate the joint probability distribution matrix (Dixon-Coles adjusted)
     matrix = build_score_matrix(exp_home, exp_away, rho_to_use)
+    
+    # 4. Extract standard betting market probabilities from the matrix grid
     markets = markets_from_matrix(matrix)
     top_scorelines = markets.pop("top_scorelines")
     pick = best_pick_label(markets)
