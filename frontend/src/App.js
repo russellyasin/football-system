@@ -1,5 +1,4 @@
-// 1. Change the import name to Healthscore (matching your capitalized component function)
-import Healthscore from "./FootballOracle";
+import Healthscore from "./Healthscore";
 
 function App() {
   // 2. Render it with the exact same name layout
