@@ -101,7 +101,7 @@ const computeExactMoneylineProbs = (mu, lambda, tau) => {
   };
 };
 
-export default function healthscore() {
+export default function HealthScore() {
   // Dynamic non-blocking injection of SheetJS engine to prevent dependency lag on mobile/desktop browsers
   useEffect(() => {
     if (!window.XLSX) {
