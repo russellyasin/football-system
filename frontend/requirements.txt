@@ -1,4 +1,7 @@
-flask
-flask-cors
+Flask
+Flask-CORS
 pandas
+requests
+scipy
+numpy
 gunicorn
