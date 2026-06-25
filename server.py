@@ -9,6 +9,12 @@ import time
 from datetime import datetime
 import pandas as pd
 import requests
+import os
+import tempfile
+
+# Dynamically resolves to the OS temporary folder with your new branding name
+lock_file_path = os.path.join(tempfile.gettempdir(), "healthscore_refresh.lock")
+lock_file = open(lock_file_path, "w")
 
 try:
     import fcntl  # POSIX only — used to make sure only ONE process runs the
@@ -1266,7 +1272,7 @@ def _acquire_singleton_lock():
     if fcntl is None:
         return True  # not on a POSIX system (e.g. local Windows dev) — just run it
     try:
-        lock_file = open("/tmp/football_oracle_refresh.lock", "w")
+        lock_file = open("/tmp/healthscore_refresh.lock", "w")
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return True
     except OSError:

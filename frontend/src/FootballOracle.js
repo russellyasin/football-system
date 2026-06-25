@@ -6,7 +6,7 @@ import { css } from '@emotion/react';
 const API =
   window.location.hostname === "localhost"
     ? "http://127.0.0.1:10000"
-    : "https://healthscore.onrender.com";
+    : "https://healthscore-fesj.onrender.com";
 
 const LEAGUES = [
   "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1",
@@ -101,7 +101,7 @@ const computeExactMoneylineProbs = (mu, lambda, tau) => {
   };
 };
 
-export default function FootballOracle() {
+export default function healthscore() {
   // Dynamic non-blocking injection of SheetJS engine to prevent dependency lag on mobile/desktop browsers
   useEffect(() => {
     if (!window.XLSX) {
